@@ -25,7 +25,7 @@ use crate::grin_util::secp::key::SecretKey;
 use crate::grin_util::secp::pedersen;
 use crate::grin_util::Mutex;
 use crate::internal::{selection, updater};
-use crate::slate::Slate;
+use crate::slate::{Slate, SlateState};
 use crate::types::{Context, NodeClient, StoredProofInfo, TxLogEntryType, WalletBackend};
 use crate::util::OnionV3Address;
 use crate::InitTxArgs;
@@ -227,6 +227,7 @@ where
 		parent_key_id.clone(),
 		use_test_rng,
 		is_initiator,
+		slate.state == SlateState::Invoice1 && true, // TODO: replace 'true' with a payjoin setting
 	)?;
 
 	// fill public keys

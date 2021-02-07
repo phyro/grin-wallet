@@ -233,9 +233,9 @@ where
 	Ok(())
 }
 
-/// Creates a new output in the wallet for the recipient,
-/// returning the key of the fresh output
-/// Also creates a new transaction containing the output
+/// Creates the output contribution for the recipient. This means it
+/// creates a new output in the wallet for the recipient and possibly
+/// contributes the input as well (payjoin), returning the key of the fresh output
 pub fn build_recipient_output<'a, T: ?Sized, C, K>(
 	wallet: &mut T,
 	keychain_mask: Option<&SecretKey>,
@@ -244,6 +244,7 @@ pub fn build_recipient_output<'a, T: ?Sized, C, K>(
 	parent_key_id: Identifier,
 	use_test_rng: bool,
 	is_initiator: bool,
+	is_payjoin: bool,
 ) -> Result<(Identifier, Context, TxLogEntry), Error>
 where
 	T: WalletBackend<'a, C, K>,
@@ -254,20 +255,58 @@ where
 	let key_id = keys::next_available_key(wallet, keychain_mask).unwrap();
 	let keychain = wallet.keychain(keychain_mask)?;
 	let key_id_inner = key_id.clone();
-	let amount = slate.amount;
+
+	let amount: u64;
+	let contributed_outputs: vec![];
+	let input: OutputData;
+
+	if is_payjoin {
+		// select a spendable output from the wallet with at least 10 confirmations
+		let (max_outputs, inputs) = select_coins(
+			wallet,
+			1000 as u64, // amount
+			current_height,
+			10 as u64,  // 10 confirmations minimum
+			1 as usize, // max 1 output as input
+			false,
+			&parent_key_id,
+		);
+
+		if max_outputs < 1 {
+			// TODO: Consumers should handle this case
+			return Err(ErrorKind::NoInputAvailableForPayjoin.into()).into();
+		}
+		input = inputs[0];
+		amount = input.value + slate.amount;
+
+		contributed_outputs = vec![
+			build::output(amount, key_id.clone()), // recipient output
+			build::input(input.value, input.key_id.clone()), // recipient input
+		];
+	} else {
+		amount = slate.amount;
+		contributed_outputs = vec![
+			build::output(amount, key_id.clone()), // recipient output
+		];
+	}
+
 	let height = current_height;
 
 	let slate_id = slate.id;
 	slate.add_transaction_elements(
 		&keychain,
 		&ProofBuilder::new(&keychain),
-		vec![build::output(amount, key_id.clone())],
+		contributed_outputs,
 	)?;
 
 	// Add blinding sum to our context
 	let mut context = Context::new(keychain.secp(), &parent_key_id, use_test_rng, is_initiator);
 
 	context.add_output(&key_id, &None, amount);
+	if is_payjoin {
+		context.add_input(&input.key_id, &input.mmr_index, input.value);
+	}
+
 	context.amount = amount;
 	context.fee = slate.fee_fields.as_opt();
 	let commit = wallet.calc_commit_for_cache(keychain_mask, amount, &key_id_inner)?;
@@ -275,8 +314,8 @@ where
 	let log_id = batch.next_tx_log_id(&parent_key_id)?;
 	let mut t = TxLogEntry::new(parent_key_id.clone(), TxLogEntryType::TxReceived, log_id);
 	t.tx_slate_id = Some(slate_id);
-	t.amount_credited = amount;
-	t.num_outputs = 1;
+	t.amount_credited = slate.amount; // TODO: should we leave the slate.amount + input.value instead?
+	t.num_outputs = 2; // TODO: do I need to set this to 2 or can I leave it at 1?
 	t.ttl_cutoff_height = match slate.ttl_cutoff_height {
 		0 => None,
 		n => Some(n),
@@ -399,7 +438,7 @@ where
 	// sender
 
 	// First attempt to spend without change
-	let mut fee = tx_fee(coins.len(), 1, 1);
+	let mut fee = tx_fee(coins.len() + 1, 1, 1); // supports payjoin
 	let mut total: u64 = coins.iter().map(|c| c.value).sum();
 	let mut amount_with_fee = amount + fee;
 
@@ -428,7 +467,7 @@ where
 
 	// We need to add a change address or amount with fee is more than total
 	if total != amount_with_fee {
-		fee = tx_fee(coins.len(), num_outputs, 1);
+		fee = tx_fee(coins.len() + 1, num_outputs, 1); // supports payjoin
 		amount_with_fee = amount + fee;
 
 		// Here check if we have enough outputs for the amount including fee otherwise
@@ -456,7 +495,7 @@ where
 				parent_key_id,
 			)
 			.1;
-			fee = tx_fee(coins.len(), num_outputs, 1);
+			fee = tx_fee(coins.len() + 1, num_outputs, 1); // supports payjoin
 			total = coins.iter().map(|c| c.value).sum();
 			amount_with_fee = amount + fee;
 		}

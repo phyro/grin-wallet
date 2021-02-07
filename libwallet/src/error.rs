@@ -170,6 +170,10 @@ pub enum ErrorKind {
 	#[fail(display = "Transaction building not completed: {}", _0)]
 	TransactionBuildingNotCompleted(u32),
 
+	/// Attempt to create a payjoin transaction without available inputs
+	#[fail(display = "Transaction building failed. No inputs available for a payjoin")]
+	NoInputAvailableForPayjoin,
+
 	/// Invalid BIP-32 Depth
 	#[fail(display = "Invalid BIP32 Depth (must be 1 or greater)")]
 	InvalidBIP32Depth,
