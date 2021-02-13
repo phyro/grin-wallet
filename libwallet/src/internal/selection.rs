@@ -257,12 +257,12 @@ where
 	let key_id_inner = key_id.clone();
 
 	let amount: u64;
-	let contributed_outputs: vec![];
-	let input: OutputData;
+	let mut contributed_outputs = Vec::new();
+	let mut inputs: Vec<OutputData> = Vec::new();
 
 	if is_payjoin {
 		// select a spendable output from the wallet with at least 10 confirmations
-		let (max_outputs, inputs) = select_coins(
+		let (max_outputs, my_inputs) = select_coins(
 			wallet,
 			1000 as u64, // amount
 			current_height,
@@ -276,12 +276,12 @@ where
 			// TODO: Consumers should handle this case
 			return Err(ErrorKind::NoInputAvailableForPayjoin.into()).into();
 		}
-		input = inputs[0];
-		amount = input.value + slate.amount;
+		inputs = my_inputs;
+		amount = inputs[0].value + slate.amount;
 
 		contributed_outputs = vec![
 			build::output(amount, key_id.clone()), // recipient output
-			build::input(input.value, input.key_id.clone()), // recipient input
+			build::input(inputs[0].value, inputs[0].key_id.clone()), // recipient input
 		];
 	} else {
 		amount = slate.amount;
@@ -304,7 +304,7 @@ where
 
 	context.add_output(&key_id, &None, amount);
 	if is_payjoin {
-		context.add_input(&input.key_id, &input.mmr_index, input.value);
+		context.add_input(&inputs[0].key_id, &inputs[0].mmr_index, inputs[0].value);
 	}
 
 	context.amount = amount;
