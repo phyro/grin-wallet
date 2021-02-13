@@ -315,7 +315,10 @@ where
 	let mut t = TxLogEntry::new(parent_key_id.clone(), TxLogEntryType::TxReceived, log_id);
 	t.tx_slate_id = Some(slate_id);
 	t.amount_credited = slate.amount; // TODO: should we leave the slate.amount + input.value instead?
-	t.num_outputs = 2; // TODO: do I need to set this to 2 or can I leave it at 1?
+	t.num_outputs = 1;
+	if is_payjoin {
+		t.num_inputs = 1;
+	}
 	t.ttl_cutoff_height = match slate.ttl_cutoff_height {
 		0 => None,
 		n => Some(n),
